@@ -7,7 +7,7 @@ import dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.vectorstores import Chroma
+from langchain_qdrant import QdrantVectorStore
 from langchain.docstore.document import Document
 
 # Load environment variables from .env file
@@ -136,7 +136,7 @@ Structure your entire response in clear, easy-to-read and simple to understand m
 """
 
 def generate_analysis_and_recommendation(
-    vector_store: Chroma,
+    vector_store: QdrantVectorStore,
     user_data: Dict,
     policy_type: str,
     doc_names: List[str],

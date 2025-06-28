@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Import your custom modules
 from document_processor import process_pdf, get_embedding_model
-from vector_store_manager import create_vector_store, DB_DIRECTORY
+from vector_store_manager import create_vector_store, cleanup_session_collections, verify_connection_type, list_collections_info
 from analysis_agent import get_llm, get_policy_type, get_contextual_questions, generate_analysis_and_recommendation
 from chat_agent import create_intelligent_agent_chain
 
@@ -58,18 +58,17 @@ def initialize_session_state():
 
 def reset_session():
     """Resets the session to its initial state and cleans up old data."""
-    # --- FIX: Explicitly release objects holding file locks before deleting ---
-    # These objects (especially vector_store) can hold locks on the db files.
+    # Clean up Qdrant collections
+    if st.session_state.session_id:
+        cleanup_session_collections(st.session_state.session_id)
+
+    # Release vector store and chain objects
     if "vector_store" in st.session_state.app_state:
         del st.session_state.app_state["vector_store"]
     if "conversational_chain" in st.session_state.app_state:
         del st.session_state.app_state["conversational_chain"]
 
-    # Clean up the ChromaDB directory. This is the simplest robust way.
-    if os.path.exists(DB_DIRECTORY):
-        shutil.rmtree(DB_DIRECTORY)
-
-    #clean up the chat history
+    # Clean up chat history
     st.session_state.app_state["chat_history"] = []
     
     # Clean up temporary uploaded files
@@ -78,16 +77,14 @@ def reset_session():
         shutil.rmtree(temp_dir_path)
 
     # Re-initialize the session state by clearing the app_state and getting a new ID
-    # DO NOT clear st.cache_resource here, as it's shared across all sessions.
     st.session_state.session_id = str(uuid.uuid4())
     del st.session_state.app_state
-    initialize_session_state() # Re-initialize with default values
+    initialize_session_state()
     st.rerun()
-
 
 # --- Main Application Logic ---
 
-# Load environment variables (for GOOGLE_API_KEY)
+# Load environment variables (for API keys)
 load_dotenv()
 initialize_session_state()
 
@@ -96,22 +93,68 @@ with st.sidebar:
     st.title("InsuraLens")
     st.info("A Smart Insurance Policy Analysis, Recommendation and Conversational Agent")
     
+    # # Add connection status
+    # if st.button("Check Database Connection", use_container_width=True):
+    #     with st.spinner("Checking connection..."):
+    #         connection_info = verify_connection_type()
+            
+    #         if connection_info["type"] == "cloud":
+    #             st.success(f"✅ Connected to Qdrant Cloud")
+    #             st.info(f"URL: {connection_info.get('url', 'N/A')}")
+    #             st.info(f"Collections: {connection_info.get('collections_count', 0)}")
+    #         elif connection_info["type"] == "local":
+    #             st.warning("⚠️ Connected to Local Qdrant")
+    #             st.info(f"Collections: {connection_info.get('collections_count', 0)}")
+    #         else:
+    #             st.error(f"❌ Connection Error: {connection_info.get('error', 'Unknown error')}")
+    
+    # # Add collections info
+    # if st.button("View Collections Info", use_container_width=True):
+    #     collections_info = list_collections_info()
+    #     if "error" not in collections_info:
+    #         st.json(collections_info)
+    #     else:
+    #         st.error(f"Error: {collections_info['error']}")
+    
     if 'GOOGLE_API_KEY' not in os.environ:
         google_api_key = st.text_input("Enter your Google API Key", type="password", key="api_key_input")
         if google_api_key:
             os.environ['GOOGLE_API_KEY'] = google_api_key
     
-    st.button("Start New Comparison", use_container_width=True)
+    if st.button("Start New Comparison", use_container_width=True):
+        reset_session()
+        st.experimental_rerun()
     st.markdown("---")
 
 # --- Main Content Area ---
 st.title("InsuraLens: A Smart Insurance Policy Analysis, Recommendation and Conversational Agent")
 st.caption("Compare two policies, get a personalized report, and ask follow-up questions.")
 
-# Check for API Key before proceeding
+# Check for API Keys before proceeding
 if "GOOGLE_API_KEY" not in os.environ or not os.environ["GOOGLE_API_KEY"]:
     st.warning("Please enter your Google API Key in the sidebar to begin.", icon="🔑")
     st.stop()
+
+# Check for Qdrant configuration
+if not os.getenv("QDRANT_URL") or not os.getenv("QDRANT_API_KEY"):
+    st.error("Qdrant Cloud configuration is missing. Please check your .env file for QDRANT_URL and QDRANT_API_KEY.", icon="❌")
+    
+    # Show current config status
+    st.code(f"""
+Current Configuration:
+QDRANT_URL: {'✅ Set' if os.getenv('QDRANT_URL') else '❌ Missing'}
+QDRANT_API_KEY: {'✅ Set' if os.getenv('QDRANT_API_KEY') else '❌ Missing'}
+    """)
+    st.stop()
+else:
+    # Show connection verification
+    connection_info = verify_connection_type()
+    if connection_info["type"] == "cloud":
+        print("🌐 Using Qdrant Cloud for vector storage")
+    elif connection_info["type"] == "local":
+        print("🏠 Using Local Qdrant (data stored locally)")
+    else:
+        st.error(f"❌ Database connection issue: {connection_info.get('error', 'Unknown')}")
 
 # STAGE 1: INITIAL - File Upload
 if st.session_state.app_state["stage"] == "initial":
@@ -150,12 +193,11 @@ elif st.session_state.app_state["stage"] == "processing":
         llm = cached_get_llm()
         embedding_model = cached_get_embedding_model()
         
-        # --- NEW: Logic to handle both uploaded files and sample files ---
-        # Check if we are using the pre-defined sample paths
+        # Handle both uploaded files and sample files
         if st.session_state.app_state.get("file_paths_to_process"):
             saved_paths = st.session_state.app_state["file_paths_to_process"]
             doc_names = [os.path.basename(p) for p in saved_paths]
-        else: # Otherwise, handle user-uploaded files
+        else:
             session_temp_dir = os.path.join(TEMP_UPLOADS_DIR, st.session_state.session_id)
             os.makedirs(session_temp_dir, exist_ok=True)
             
@@ -183,7 +225,13 @@ elif st.session_state.app_state["stage"] == "processing":
             st.rerun()
         
         collection_name = f"policies-{st.session_state.session_id}"
-        vector_store = create_vector_store(all_chunks, embedding_model, collection_name)
+        
+        try:
+            vector_store = create_vector_store(all_chunks, embedding_model, collection_name)
+        except Exception as e:
+            st.error(f"Failed to create vector store: {str(e)}")
+            st.session_state.app_state["stage"] = "initial"
+            st.rerun()
         
         policy_type = get_policy_type(full_text_for_classification, llm)
         questions = get_contextual_questions(policy_type, llm)

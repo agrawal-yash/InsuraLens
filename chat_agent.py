@@ -2,7 +2,7 @@
 
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_community.vectorstores import Chroma
+from langchain_qdrant import QdrantVectorStore
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -80,7 +80,7 @@ def convert_tuples_to_messages(chat_history: List[Tuple[str, str]]):
 
 def create_intelligent_agent_chain(
     llm: ChatGoogleGenerativeAI,
-    vector_store: Chroma,
+    vector_store: QdrantVectorStore,
     doc_names: List[str],
     user_profile: Dict,
 ):
@@ -125,9 +125,12 @@ def create_intelligent_agent_chain(
         
         if target_doc != "both" and target_doc in doc_names:
             print(f"--- Routing to document: {target_doc} ---")
-            metadata_filter = {"source": target_doc}
+            # For Qdrant, we use filter in search_kwargs
             filtered_retriever = vector_store.as_retriever(
-                search_kwargs={"k": 10, "filter": metadata_filter}
+                search_kwargs={
+                    "k": 10, 
+                    "filter": {"source": target_doc}
+                }
             )
         else:
             print("--- Routing to both documents ---")
@@ -141,7 +144,6 @@ def create_intelligent_agent_chain(
     answer_generation_chain = create_stuff_documents_chain(llm, ANSWER_PROMPT)
 
     # 5. Final Conversational Chain
-    # This combines the custom document retriever with the answering chain.
     conversational_retrieval_chain = create_retrieval_chain(
         retriever=RunnableLambda(get_relevant_documents),
         combine_docs_chain=answer_generation_chain
