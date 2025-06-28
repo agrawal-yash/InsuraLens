@@ -19,7 +19,7 @@ def create_vector_store(
     chunks: List[Document],
     embeddings: HuggingFaceEmbeddings,
     collection_name: str,
-    persist_directory: str = DB_DIRECTORY
+    # persist_directory: str = DB_DIRECTORY
 ) -> Chroma:
     """
     Creates a ChromaDB vector store from a list of document chunks.
