@@ -100,8 +100,9 @@ Here is the relevant information extracted from the two policy documents. Use th
 {context}
 
 **POLICY DOCUMENTS:**
-- Policy 1 Name: {doc1_name}
-- Policy 2 Name: {doc2_name}
+- Policy 1 : {doc1_name}
+- Policy 2 : {doc2_name}
+Extract the names of the policies from the documents and use them in your analysis.
 
 **USER PROFILE:**
 The user has provided the following information about their needs. This is crucial for your recommendation.
@@ -111,13 +112,19 @@ The user has provided the following information about their needs. This is cruci
 **YOUR TASK (Follow this structure precisely):**
 
 **1. Overall Summary:**
-Briefly summarize the core offering of each policy in 2-3 sentences.
+Briefly summarize the core offering of each policy in 2-3 sentences. Dont keep in a very plain format, but make it clear and concise.
 
 **2. Detailed Feature Comparison:**
-Create a markdown table comparing the key features of both policies side-by-side. Include features like: Coverage Amount, Premium, Co-payment clauses, Waiting Periods, Key Exclusions, etc. Be factual and extract data from the context.
+Create a markdown table comparing the key features of both policies side-by-side. Include features like: Coverage Amount, Premium, Co-payment clauses, Waiting Periods, Key Exclusions, etc. Be factual and extract data from the context. Remember that some terms may be complex, so explain them in simple terms if necessary. Also there might be some terms that are the same but are named differently in each policy, so be sure to clarify that.
+Use this exact markdown format for the table, replacing "Policy 1 Name" and "Policy 2 Name" with the actual document names:
+| Feature | Policy 1 Name | Policy 2 Name |
+| :--- | :--- | :--- |
+| **Coverage Amount** | [Detail from Policy 1] | [Detail from Policy 2] |
+| **Premium** | [Detail from Policy 1] | [Detail from Policy 2] |
+| **Co-payment** | [Detail from Policy 1] | [Detail from Policy 2] |
 
 **3. Analysis of Hidden Clauses & Red Flags:**
-For each policy, identify and explain any potentially confusing, restrictive, or unfavorable clauses that a typical user might overlook. Look for things like sub-limits, strict claim conditions, or ambiguous definitions. Use a "🚩" emoji for each red flag.
+For each policy, identify and explain any potentially confusing, restrictive, or unfavorable clauses that a typical user might overlook. Look for things like sub-limits, strict claim conditions, or ambiguous definitions. Use a "🚩" emoji for each red flag. 
 
 **4. Personalized Recommendation:**
 Based on the user's profile and your analysis, provide a clear recommendation.
@@ -125,7 +132,7 @@ Based on the user's profile and your analysis, provide a clear recommendation.
 - Also, explain why the other policy is less suitable for this specific user.
 - Your reasoning must directly connect the policy features to the user's provided answers.
 
-Structure your entire response in clear, easy-to-read markdown. Also note that do not use industry jargon or complex terms. The user is not an insurance expert and needs a straightforward explanation.
+Structure your entire response in clear, easy-to-read and simple to understand markdown.
 """
 
 def generate_analysis_and_recommendation(
@@ -137,13 +144,22 @@ def generate_analysis_and_recommendation(
 ) -> str:
     """Generates the final comprehensive analysis and recommendation report."""
     
-    # 1. Retrieve relevant context from the vector store
-    # We query for a larger 'k' value to give the LLM more context
-    retriever = vector_store.as_retriever(search_kwargs={"k": 20})
-    # We can join all retrieved docs into a single string
-    context_docs = retriever.get_relevant_documents(query=f"full summary of {policy_type} insurance policy")
-    context_str = "\n\n---\n\n".join([doc.page_content for doc in context_docs])
+    # 1. Retrieve relevant context from the vector store for each document
+    retriever = vector_store.as_retriever(search_kwargs={"k": 10}) # k=10 for each doc
     
+    # Retrieve for doc 1
+    query1 = f"full summary of policy '{doc_names[0]}' for {policy_type} insurance"
+    context_docs1 = retriever.get_relevant_documents(query=query1)
+    
+    # Retrieve for doc 2
+    query2 = f"full summary of policy '{doc_names[1]}' for {policy_type} insurance"
+    context_docs2 = retriever.get_relevant_documents(query=query2)
+
+    # Combine contexts
+    context_str1 = "\n\n".join([doc.page_content for doc in context_docs1])
+    context_str2 = "\n\n".join([doc.page_content for doc in context_docs2])
+    context_str = f"--- CONTEXT FOR {doc_names[0]} ---\n{context_str1}\n\n--- CONTEXT FOR {doc_names[1]} ---\n{context_str2}"
+
     # 2. Create the prompt
     prompt = PromptTemplate.from_template(ANALYSIS_PROMPT_TEMPLATE)
     
