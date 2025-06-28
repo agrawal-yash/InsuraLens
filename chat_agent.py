@@ -6,7 +6,8 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
-from typing import List, Dict
+from langchain_core.messages import HumanMessage, AIMessage
+from typing import List, Dict, Tuple, Any
 
 # --- 1. Chain to Route Question to a Specific Document ---
 
@@ -64,6 +65,17 @@ Context:
     ]
 )
 
+# --- Helper Function to Convert Tuples to Message Objects ---
+def convert_tuples_to_messages(chat_history: List[Tuple[str, str]]):
+    """Convert chat history from (role, content) tuples to LangChain message objects."""
+    messages = []
+    for role, content in chat_history:
+        if role == "user":
+            messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            messages.append(AIMessage(content=content))
+    return messages
+
 # --- The Main Function to Create the Intelligent Agent Chain ---
 
 def create_intelligent_agent_chain(
@@ -90,8 +102,18 @@ def create_intelligent_agent_chain(
         | (lambda x: x.content.strip())
     )
 
-    # 2. History-Aware Retriever
-    history_aware_retriever = create_history_aware_retriever(llm, retriever, HISTORY_AWARE_PROMPT)
+    # 2. History-Aware Retriever - with message format handling
+    def create_custom_history_aware_retriever(retriever):
+        def retrieve_with_history(inputs: Dict[str, Any]) -> List:
+            # Convert tuple chat history to message objects if needed
+            if "chat_history" in inputs and inputs["chat_history"] and isinstance(inputs["chat_history"][0], tuple):
+                history = convert_tuples_to_messages(inputs["chat_history"])
+                modified_inputs = {**inputs, "chat_history": history}
+                return history_aware_retriever.invoke(modified_inputs)
+            return history_aware_retriever.invoke(inputs)
+        
+        history_aware_retriever = create_history_aware_retriever(llm, retriever, HISTORY_AWARE_PROMPT)
+        return RunnableLambda(retrieve_with_history)
 
     # 3. Document-Specific Retriever
     def get_relevant_documents(inputs: dict) -> dict:
@@ -112,7 +134,7 @@ def create_intelligent_agent_chain(
             filtered_retriever = retriever
         
         # Now create a history-aware retriever with the chosen (or default) retriever
-        specific_history_aware_retriever = create_history_aware_retriever(llm, filtered_retriever, HISTORY_AWARE_PROMPT)
+        specific_history_aware_retriever = create_custom_history_aware_retriever(filtered_retriever)
         return specific_history_aware_retriever.invoke(inputs)
 
     # 4. Answering Chain
