@@ -21,6 +21,7 @@ cffi==1.17.1
 chardet==5.2.0
 charset-normalizer==3.4.2
 chromadb==0.4.15
+hnswlib==0.7.0
 click==8.2.1
 cloudpathlib==0.21.1
 colorama==0.4.6
