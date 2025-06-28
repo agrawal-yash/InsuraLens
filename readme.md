@@ -84,10 +84,33 @@ venv\Scripts\activate  # Windows
 pip  install  -r  requirements.txt
 ```
 
-### 4. Add Environment Variables
+### 4. Configure Secrets
 
-Create a `.env` file for API keys:
+#### For Local Development:
+Create a `.streamlit/secrets.toml` file in your project directory:
 
+```toml
+# .streamlit/secrets.toml
+GOOGLE_API_KEY = "your_google_api_key_here"
+QDRANT_URL = "your_qdrant_cloud_url"
+QDRANT_API_KEY = "your_qdrant_api_key"
+```
+
+**Important:** Never commit the `secrets.toml` file to version control!
+
+#### For Streamlit Cloud Deployment:
+1. Go to [Streamlit Cloud](https://share.streamlit.io/)
+2. Deploy your app
+3. In your app dashboard, click on "Settings" → "Secrets"
+4. Add your secrets in this format:
+```toml
+GOOGLE_API_KEY = "your_google_api_key_here"
+QDRANT_URL = "your_qdrant_cloud_url"
+QDRANT_API_KEY = "your_qdrant_api_key"
+```
+
+#### Alternative: Environment Variables
+If you prefer, you can still use a `.env` file (keep for backward compatibility):
 ```
 GOOGLE_API_KEY=your_google_api_key
 QDRANT_URL=your_qdrant_cloud_url

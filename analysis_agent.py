@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Dict
-import dotenv
+import streamlit as st
 
 # LangChain and Gemini components
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -10,19 +10,34 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_qdrant import QdrantVectorStore
 from langchain.docstore.document import Document
 
-# Load environment variables from .env file
-dotenv.load_dotenv()
-
 # Import from our previous modules for the example
 from document_processor import process_pdf, get_embedding_model
 from vector_store_manager import create_vector_store
 
+def get_google_api_key():
+    """Get Google API key from Streamlit secrets or environment variables."""
+    try:
+        # Try Streamlit secrets first
+        api_key = st.secrets.get("GOOGLE_API_KEY")
+        if api_key:
+            return api_key
+    except Exception:
+        pass
+    
+    # Fallback to environment variable
+    return os.environ.get("GOOGLE_API_KEY")
+
 # --- LLM Configuration ---
 def get_llm() -> ChatGoogleGenerativeAI:
     """Initializes and returns the Gemini Pro LLM."""
-    # Ensure the API key is set
-    if "GOOGLE_API_KEY" not in os.environ:
-        raise ValueError("GOOGLE_API_KEY not found in environment variables. Please set it.")
+    # Get API key from secrets or environment
+    api_key = get_google_api_key()
+    
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY not found in Streamlit secrets or environment variables. Please set it.")
+    
+    # Set the environment variable for the LangChain library
+    os.environ["GOOGLE_API_KEY"] = api_key
     
     # Using Gemini Pro for this task
     return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)

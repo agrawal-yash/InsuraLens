@@ -2,12 +2,11 @@ import streamlit as st
 import os
 import uuid
 import shutil
-from dotenv import load_dotenv
 
 # Import your custom modules
 from document_processor import process_pdf, get_embedding_model
-from vector_store_manager import create_vector_store, cleanup_session_collections, verify_connection_type, list_collections_info
-from analysis_agent import get_llm, get_policy_type, get_contextual_questions, generate_analysis_and_recommendation
+from vector_store_manager import create_vector_store, cleanup_session_collections, verify_connection_type, list_collections_info, get_secrets
+from analysis_agent import get_llm, get_policy_type, get_contextual_questions, generate_analysis_and_recommendation, get_google_api_key
 from chat_agent import create_intelligent_agent_chain
 
 # --- Constants ---
@@ -82,10 +81,21 @@ def reset_session():
     initialize_session_state()
     st.rerun()
 
+# --- API Key Management ---
+
+def check_api_keys():
+    """Check if required API keys are available in secrets or environment."""
+    google_api_key = get_google_api_key()
+    secrets = get_secrets()
+    
+    return {
+        "google_api_key": google_api_key,
+        "qdrant_url": secrets["QDRANT_URL"],
+        "qdrant_api_key": secrets["QDRANT_API_KEY"]
+    }
+
 # --- Main Application Logic ---
 
-# Load environment variables (for API keys)
-load_dotenv()
 initialize_session_state()
 
 # --- Sidebar ---
@@ -93,37 +103,25 @@ with st.sidebar:
     st.title("InsuraLens")
     st.info("A Smart Insurance Policy Analysis, Recommendation and Conversational Agent")
     
-    # # Add connection status
-    # if st.button("Check Database Connection", use_container_width=True):
-    #     with st.spinner("Checking connection..."):
-    #         connection_info = verify_connection_type()
-            
-    #         if connection_info["type"] == "cloud":
-    #             st.success(f"✅ Connected to Qdrant Cloud")
-    #             st.info(f"URL: {connection_info.get('url', 'N/A')}")
-    #             st.info(f"Collections: {connection_info.get('collections_count', 0)}")
-    #         elif connection_info["type"] == "local":
-    #             st.warning("⚠️ Connected to Local Qdrant")
-    #             st.info(f"Collections: {connection_info.get('collections_count', 0)}")
-    #         else:
-    #             st.error(f"❌ Connection Error: {connection_info.get('error', 'Unknown error')}")
+    # Check API keys
+    api_keys = check_api_keys()
     
-    # # Add collections info
-    # if st.button("View Collections Info", use_container_width=True):
-    #     collections_info = list_collections_info()
-    #     if "error" not in collections_info:
-    #         st.json(collections_info)
-    #     else:
-    #         st.error(f"Error: {collections_info['error']}")
+    # Show configuration status
+    st.subheader("Configuration Status")
+    st.write("✅ Google API Key" if api_keys["google_api_key"] else "❌ Google API Key")
+    st.write("✅ Qdrant URL" if api_keys["qdrant_url"] else "❌ Qdrant URL")
+    st.write("✅ Qdrant API Key" if api_keys["qdrant_api_key"] else "❌ Qdrant API Key")
     
-    if 'GOOGLE_API_KEY' not in os.environ:
+    # Manual API key input fallback
+    if not api_keys["google_api_key"]:
         google_api_key = st.text_input("Enter your Google API Key", type="password", key="api_key_input")
         if google_api_key:
             os.environ['GOOGLE_API_KEY'] = google_api_key
+            st.success("✅ Google API Key set for this session")
     
     if st.button("Start New Comparison", use_container_width=True):
         reset_session()
-        st.experimental_rerun()
+        st.rerun()
     st.markdown("---")
 
 # --- Main Content Area ---
@@ -131,28 +129,50 @@ st.title("InsuraLens: A Smart Insurance Policy Analysis, Recommendation and Conv
 st.caption("Compare two policies, get a personalized report, and ask follow-up questions.")
 
 # Check for API Keys before proceeding
-if "GOOGLE_API_KEY" not in os.environ or not os.environ["GOOGLE_API_KEY"]:
-    st.warning("Please enter your Google API Key in the sidebar to begin.", icon="🔑")
+api_keys = check_api_keys()
+if not api_keys["google_api_key"]:
+    st.warning("Please configure your Google API Key in Streamlit secrets or enter it in the sidebar to begin.", icon="🔑")
+    st.info("""
+    **To configure secrets:**
+    1. Go to your Streamlit Cloud dashboard
+    2. Click on your app settings
+    3. Add secrets in the format:
+    ```
+    GOOGLE_API_KEY = "your_api_key_here"
+    QDRANT_URL = "your_qdrant_url"
+    QDRANT_API_KEY = "your_qdrant_api_key"
+    ```
+    """)
     st.stop()
 
 # Check for Qdrant configuration
-if not os.getenv("QDRANT_URL") or not os.getenv("QDRANT_API_KEY"):
-    st.error("Qdrant Cloud configuration is missing. Please check your .env file for QDRANT_URL and QDRANT_API_KEY.", icon="❌")
+if not api_keys["qdrant_url"] or not api_keys["qdrant_api_key"]:
+    st.error("Qdrant Cloud configuration is missing. Please check your Streamlit secrets.", icon="❌")
     
     # Show current config status
     st.code(f"""
 Current Configuration:
-QDRANT_URL: {'✅ Set' if os.getenv('QDRANT_URL') else '❌ Missing'}
-QDRANT_API_KEY: {'✅ Set' if os.getenv('QDRANT_API_KEY') else '❌ Missing'}
+QDRANT_URL: {'✅ Set' if api_keys["qdrant_url"] else '❌ Missing'}
+QDRANT_API_KEY: {'✅ Set' if api_keys["qdrant_api_key"] else '❌ Missing'}
+    """)
+    st.info("""
+    **To configure Qdrant secrets:**
+    1. Go to your Streamlit Cloud dashboard
+    2. Click on your app settings
+    3. Add these secrets:
+    ```
+    QDRANT_URL = "https://your-cluster.qdrant.io:6333"
+    QDRANT_API_KEY = "your_qdrant_api_key"
+    ```
     """)
     st.stop()
 else:
     # Show connection verification
     connection_info = verify_connection_type()
     if connection_info["type"] == "cloud":
-        print("🌐 Using Qdrant Cloud for vector storage")
+        st.success("🌐 Using Qdrant Cloud for vector storage")
     elif connection_info["type"] == "local":
-        print("🏠 Using Local Qdrant (data stored locally)")
+        st.warning("🏠 Using Local Qdrant (data stored locally)")
     else:
         st.error(f"❌ Database connection issue: {connection_info.get('error', 'Unknown')}")
 

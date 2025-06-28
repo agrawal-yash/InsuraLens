@@ -2,6 +2,7 @@ import os
 import shutil
 import uuid
 from typing import List
+import streamlit as st
 
 # LangChain components
 from langchain.docstore.document import Document
@@ -12,15 +13,7 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
 from langchain.embeddings.base import Embeddings
-from dotenv import load_dotenv
 import logging
-
-# Load environment variables
-load_dotenv()
-
-# Qdrant Cloud configuration
-QDRANT_URL = os.getenv("QDRANT_URL")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,13 +25,42 @@ from document_processor import process_pdf, get_embedding_model
 # Define a constant for the database directory
 DB_DIRECTORY = "db"
 
+def get_secrets():
+    """Get secrets from Streamlit secrets or fallback to environment variables."""
+    try:
+        # Try to get from Streamlit secrets first
+        qdrant_url = st.secrets.get("QDRANT_URL")
+        qdrant_api_key = st.secrets.get("QDRANT_API_KEY")
+        google_api_key = st.secrets.get("GOOGLE_API_KEY")
+        
+        # Fallback to environment variables if secrets not available
+        if not qdrant_url:
+            qdrant_url = os.getenv("QDRANT_URL")
+        if not qdrant_api_key:
+            qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        if not google_api_key:
+            google_api_key = os.getenv("GOOGLE_API_KEY")
+            
+        return {
+            "QDRANT_URL": qdrant_url,
+            "QDRANT_API_KEY": qdrant_api_key,
+            "GOOGLE_API_KEY": google_api_key
+        }
+    except Exception as e:
+        logger.warning(f"Could not access Streamlit secrets: {e}. Using environment variables.")
+        return {
+            "QDRANT_URL": os.getenv("QDRANT_URL"),
+            "QDRANT_API_KEY": os.getenv("QDRANT_API_KEY"),
+            "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY")
+        }
 
 def get_qdrant_client():
     """
-    Returns a Qdrant client - either cloud or local based on environment variables.
+    Returns a Qdrant client - either cloud or local based on secrets/environment variables.
     """
-    qdrant_url = os.getenv("QDRANT_URL")
-    qdrant_api_key = os.getenv("QDRANT_API_KEY")
+    secrets = get_secrets()
+    qdrant_url = secrets["QDRANT_URL"]
+    qdrant_api_key = secrets["QDRANT_API_KEY"]
     
     if qdrant_url and qdrant_api_key:
         logger.info(f"🌐 Connecting to Qdrant Cloud at: {qdrant_url}")
@@ -73,7 +95,8 @@ def verify_connection_type():
             # This is a cloud-specific endpoint
             collections = client.get_collections()
             
-            qdrant_url = os.getenv("QDRANT_URL", "")
+            secrets = get_secrets()
+            qdrant_url = secrets["QDRANT_URL"] or ""
             if "cloud.qdrant.io" in qdrant_url:
                 return {
                     "type": "cloud",
@@ -188,11 +211,12 @@ def create_qdrant_vector_store(
     logger.info(f"📊 Creating collection '{collection_name}' in {connection_info['type']} Qdrant")
     
     try:
+        secrets = get_secrets()
         vector_store = QdrantVectorStore.from_documents(
             documents=documents,
             embedding=embedding_model,
-            url=os.getenv("QDRANT_URL"),
-            api_key=os.getenv("QDRANT_API_KEY"),
+            url=secrets["QDRANT_URL"],
+            api_key=secrets["QDRANT_API_KEY"],
             collection_name=collection_name,
             vector_params=VectorParams(size=384, distance=Distance.COSINE)
         )
@@ -218,12 +242,16 @@ def create_empty_vector_store(
     Returns:
         QdrantVectorStore: The created empty vector store
     """
-    if not QDRANT_URL or not QDRANT_API_KEY:
-        raise ValueError("QDRANT_URL and QDRANT_API_KEY must be set in environment variables")
+    secrets = get_secrets()
+    qdrant_url = secrets["QDRANT_URL"]
+    qdrant_api_key = secrets["QDRANT_API_KEY"]
+    
+    if not qdrant_url or not qdrant_api_key:
+        raise ValueError("QDRANT_URL and QDRANT_API_KEY must be set in Streamlit secrets or environment variables")
     
     # Create the empty vector store
     vector_store = QdrantVectorStore(
-        client=QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY),
+        client=QdrantClient(url=qdrant_url, api_key=qdrant_api_key),
         collection_name=collection_name,
         embedding=embedding_model,
         distance=Distance.COSINE,
@@ -242,12 +270,16 @@ def delete_collection(collection_name: str) -> bool:
         bool: True if successful, False otherwise
     """
     try:
-        if not QDRANT_URL or not QDRANT_API_KEY:
+        secrets = get_secrets()
+        qdrant_url = secrets["QDRANT_URL"]
+        qdrant_api_key = secrets["QDRANT_API_KEY"]
+        
+        if not qdrant_url or not qdrant_api_key:
             return False
             
         client = QdrantClient(
-            url=QDRANT_URL,
-            api_key=QDRANT_API_KEY,
+            url=qdrant_url,
+            api_key=qdrant_api_key,
         )
         
         # Check if collection exists before trying to delete
