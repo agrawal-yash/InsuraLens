@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Import your custom modules
 from document_processor import process_pdf, get_embedding_model
-from vector_store_manager import create_vector_store, DB_DIRECTORY
+from vector_store_manager import create_vector_store
 from analysis_agent import get_llm, get_policy_type, get_contextual_questions, generate_analysis_and_recommendation
 from chat_agent import create_intelligent_agent_chain
 
@@ -37,7 +37,6 @@ def cached_get_embedding_model():
 # --- Session State Management ---
 
 def initialize_session_state():
-    """Initializes all the necessary variables in the session state for a new session."""
     if 'session_id' not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
     
@@ -45,43 +44,25 @@ def initialize_session_state():
         st.session_state.app_state = {
             "stage": "initial",
             "uploaded_files": None,
+            "file_paths_to_process": [],
+            "vector_store": None, # <-- We will store the live object here
             "policy_type": None,
             "questions": [],
             "user_answers": {},
             "final_report": None,
-            "vector_store": None,
             "doc_names": [],
-            "saved_paths": [],
             "chat_history": [],
             "conversational_chain": None
         }
 
 def reset_session():
-    """Resets the session to its initial state and cleans up old data."""
-    # --- FIX: Explicitly release objects holding file locks before deleting ---
-    # These objects (especially vector_store) can hold locks on the db files.
-    if "vector_store" in st.session_state.app_state:
-        del st.session_state.app_state["vector_store"]
-    if "conversational_chain" in st.session_state.app_state:
-        del st.session_state.app_state["conversational_chain"]
-
-    # Clean up the ChromaDB directory. This is the simplest robust way.
-    if os.path.exists(DB_DIRECTORY):
-        shutil.rmtree(DB_DIRECTORY)
-
-    #clean up the chat history
-    st.session_state.app_state["chat_history"] = []
-    
-    # Clean up temporary uploaded files
+    # We no longer need to delete the DB_DIRECTORY as it's not created
     temp_dir_path = os.path.join(TEMP_UPLOADS_DIR, st.session_state.session_id)
     if os.path.exists(temp_dir_path):
         shutil.rmtree(temp_dir_path)
-
-    # Re-initialize the session state by clearing the app_state and getting a new ID
-    # DO NOT clear st.cache_resource here, as it's shared across all sessions.
     st.session_state.session_id = str(uuid.uuid4())
     del st.session_state.app_state
-    initialize_session_state() # Re-initialize with default values
+    initialize_session_state()
     st.rerun()
 
 
@@ -184,6 +165,11 @@ elif st.session_state.app_state["stage"] == "processing":
         
         collection_name = f"policies-{st.session_state.session_id}"
         vector_store = create_vector_store(all_chunks, embedding_model, collection_name)
+
+        if not vector_store:
+            st.error("Could not create document database. This might be due to empty PDFs. Please try again.")
+            st.session_state.stage = "initial"
+            st.rerun()
         
         policy_type = get_policy_type(full_text_for_classification, llm)
         questions = get_contextual_questions(policy_type, llm)
@@ -217,11 +203,15 @@ elif st.session_state.app_state["stage"] == "questions":
 
 # STAGE 4: REPORT & CHAT - Display Final Analysis and Start Conversation
 elif st.session_state.app_state["stage"] == "report":
+    vector_store = st.session_state.app_state.get("vector_store")
+    if not vector_store:
+        st.error("Your session has expired. The document database was lost. Please start a new comparison.")
+        st.stop()
     if not st.session_state.app_state["final_report"]:
         with st.spinner("Our AI expert is drafting your personalized analysis... This may take a moment."):
             llm = cached_get_llm()
             final_report = generate_analysis_and_recommendation(
-                vector_store=st.session_state.app_state["vector_store"],
+                vector_store=vector_store,
                 user_data=st.session_state.app_state["user_answers"],
                 policy_type=st.session_state.app_state["policy_type"],
                 doc_names=st.session_state.app_state["doc_names"],
@@ -255,7 +245,7 @@ elif st.session_state.app_state["stage"] == "report":
     if not st.session_state.app_state.get("conversational_chain"):
         st.session_state.app_state["conversational_chain"] = create_intelligent_agent_chain(
             llm=cached_get_llm(),
-            vector_store=st.session_state.app_state["vector_store"],
+            vector_store=vector_store,
             doc_names=st.session_state.app_state["doc_names"],
             user_profile=st.session_state.app_state["user_answers"]
         )
