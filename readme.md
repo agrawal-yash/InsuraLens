@@ -182,7 +182,22 @@ The application will be accessible at http://localhost:8501
 
 ---
 
-## 🧠 Future Enhancements
+## Diagrams
+
+### Architecture Diagram 
+![Architecture Diagram](https://github.com/user-attachments/assets/bef58953-22ea-4079-8bae-b17fd7aed06d)
+
+### Flow Diagram 
+![Flow Diagramw](https://github.com/user-attachments/assets/7d08f4f6-80ba-47ef-9233-a6c39eee7e95)
+
+
+
+
+
+
+---
+
+## Future Enhancements
 
 - OCR for scanned PDFs
 - Multilingual support (Hindi, Marathi, etc.)
