@@ -12,7 +12,7 @@ from langchain.docstore.document import Document
 
 # Import from our previous modules for the example
 from document_processor import process_pdf, get_embedding_model
-from vector_store_manager import create_vector_store
+from vector_store_manager import create_qdrant_vector_store
 
 def get_google_api_key():
     """Get Google API key from Streamlit secrets or environment variables."""

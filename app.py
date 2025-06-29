@@ -5,7 +5,7 @@ import shutil
 
 # Import your custom modules
 from document_processor import process_pdf, get_embedding_model
-from vector_store_manager import create_vector_store, cleanup_session_collections, verify_connection_type, list_collections_info, get_secrets
+from vector_store_manager import create_qdrant_vector_store, cleanup_session_collections, verify_connection_type, list_collections_info, get_secrets
 from analysis_agent import get_llm, get_policy_type, get_contextual_questions, generate_analysis_and_recommendation, get_google_api_key
 from chat_agent import create_intelligent_agent_chain
 
@@ -107,10 +107,10 @@ with st.sidebar:
     api_keys = check_api_keys()
     
     # Show configuration status
-    st.subheader("Configuration Status")
-    st.write("✅ Google API Key" if api_keys["google_api_key"] else "❌ Google API Key")
-    st.write("✅ Qdrant URL" if api_keys["qdrant_url"] else "❌ Qdrant URL")
-    st.write("✅ Qdrant API Key" if api_keys["qdrant_api_key"] else "❌ Qdrant API Key")
+    # st.subheader("Configuration Status")
+    # st.write("✅ Google API Key" if api_keys["google_api_key"] else "❌ Google API Key")
+    # st.write("✅ Qdrant URL" if api_keys["qdrant_url"] else "❌ Qdrant URL")
+    # st.write("✅ Qdrant API Key" if api_keys["qdrant_api_key"] else "❌ Qdrant API Key")
     
     # Manual API key input fallback
     if not api_keys["google_api_key"]:
@@ -170,11 +170,11 @@ else:
     # Show connection verification
     connection_info = verify_connection_type()
     if connection_info["type"] == "cloud":
-        st.success("🌐 Using Qdrant Cloud for vector storage")
+        print("🌐 Using Qdrant Cloud for vector storage")
     elif connection_info["type"] == "local":
-        st.warning("🏠 Using Local Qdrant (data stored locally)")
+        print("🏠 Using Local Qdrant (data stored locally)")
     else:
-        st.error(f"❌ Database connection issue: {connection_info.get('error', 'Unknown')}")
+        print(f"❌ Database connection issue: {connection_info.get('error', 'Unknown')}")
 
 # STAGE 1: INITIAL - File Upload
 if st.session_state.app_state["stage"] == "initial":
@@ -242,16 +242,14 @@ elif st.session_state.app_state["stage"] == "processing":
         if not all_chunks:
             st.error("Could not extract text from the provided PDFs. Please try different documents or use the samples.")
             st.session_state.app_state["stage"] = "initial"
-            st.rerun()
         
         collection_name = f"policies-{st.session_state.session_id}"
         
         try:
-            vector_store = create_vector_store(all_chunks, embedding_model, collection_name)
+            vector_store = create_qdrant_vector_store(all_chunks, embedding_model, collection_name)
         except Exception as e:
-            st.error(f"Failed to create vector store: {str(e)}")
+            print(f"Failed to create vector store: {str(e)}")
             st.session_state.app_state["stage"] = "initial"
-            st.rerun()
         
         policy_type = get_policy_type(full_text_for_classification, llm)
         questions = get_contextual_questions(policy_type, llm)
