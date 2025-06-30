@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
+from qdrant_client.http import models
 from typing import List, Dict, Tuple, Any
 
 # --- 1. Chain to Route Question to a Specific Document ---
@@ -125,13 +126,40 @@ def create_intelligent_agent_chain(
         
         if target_doc != "both" and target_doc in doc_names:
             print(f"--- Routing to document: {target_doc} ---")
-            # For Qdrant, we use filter in search_kwargs
-            filtered_retriever = vector_store.as_retriever(
-                search_kwargs={
-                    "k": 10, 
-                    "filter": {"source": target_doc}
-                }
-            )
+            
+            # Create the filter with extra validation
+            try:
+                # Ensure target_doc is a string and not malformed
+                if not isinstance(target_doc, str):
+                    print(f"Warning: target_doc is not a string: {type(target_doc)}, value: {target_doc}")
+                    target_doc = str(target_doc)
+                
+                # Create the filter with proper structure
+                filter_condition = models.FieldCondition(
+                    key="metadata.source",
+                    match=models.MatchValue(value=target_doc)
+                )
+                
+                qdrant_filter = models.Filter(must=[filter_condition])
+                
+                # Validate the filter by checking its structure
+                if not hasattr(qdrant_filter, 'must') or not qdrant_filter.must:
+                    raise ValueError("Filter creation failed - missing 'must' attribute")
+                
+                print(f"Created filter for source: {target_doc}")
+                
+                filtered_retriever = vector_store.as_retriever(
+                    search_kwargs={
+                        "k": 10, 
+                        "filter": qdrant_filter
+                    }
+                )
+                
+            except Exception as e:
+                print(f"Error creating filtered retriever: {e}")
+                print(f"Falling back to unfiltered retriever")
+                filtered_retriever = retriever
+                
         else:
             print("--- Routing to both documents ---")
             filtered_retriever = retriever

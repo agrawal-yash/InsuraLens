@@ -10,7 +10,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams
+from qdrant_client.http.models import Distance, VectorParams, PayloadSchemaType
 from langchain.embeddings.base import Embeddings
 import logging
 
@@ -137,7 +137,8 @@ def create_qdrant_vector_store(
     collection_name: str
 ) -> QdrantVectorStore:
     """
-    Creates a Qdrant vector store from a list of documents.
+    Creates a Qdrant vector store from a list of documents and ensures
+    a payload index is created for metadata filtering.
     
     Args:
         documents: List of LangChain Document objects
@@ -155,15 +156,31 @@ def create_qdrant_vector_store(
     
     try:
         secrets = get_secrets()
+        # This method creates the collection if it doesn't exist and adds documents.
         vector_store = QdrantVectorStore.from_documents(
             documents=documents,
             embedding=embedding_model,
             url=secrets["QDRANT_URL"],
             api_key=secrets["QDRANT_API_KEY"],
             collection_name=collection_name,
-            distance=Distance.COSINE
+            distance=Distance.COSINE,
         )
         logger.info(f"✅ Successfully created vector store with {len(documents)} documents")
+
+        # Now, create the payload index for the 'source' metadata field.
+        # This is crucial for efficient filtering and resolves the 400 error.
+        logger.info(f"Creating payload index for 'metadata.source' on collection '{collection_name}'")
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="metadata.source",
+                field_schema=PayloadSchemaType.KEYWORD
+            )
+            logger.info("✅ Payload index created successfully.")
+        except Exception as e:
+            # This might fail if the index already exists, which is okay.
+            logger.warning(f"Could not create payload index (it might already exist): {e}")
+
         return vector_store
     except Exception as e:
         logger.error(f"❌ Failed to create vector store: {e}")
@@ -299,5 +316,3 @@ def cleanup_session_collections(session_id: str):
                 
     except Exception as e:
         logger.error(f"❌ Error during cleanup: {e}")
-
-
